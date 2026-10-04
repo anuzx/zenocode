@@ -37,6 +37,11 @@ Keys: `Option+Enter` for a newline, `Ctrl+D` to exit.
 | Sandboxing          | `sandbox-exec` (macOS) / `bubblewrap` (Linux)                        |
 | Packaging           | `setuptools`, managed with [`uv`](https://docs.astral.sh/uv/)        |
 
+
+## System Architecture
+<img width="3302" height="1130" alt="image" src="https://github.com/user-attachments/assets/610c7466-dc05-457e-a157-158066c97627" />
+
+
 ## Installation
 
 Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/) (or `pipx`).
