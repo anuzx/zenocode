@@ -7,7 +7,7 @@ from src.commands import compact as run_compact
 from src.core.compact import needed
 from src.core.context import reminder
 from src.core.history import cap, strip, sweep
-from src.core.todos import TODO_SCHEMA, write_todos
+from src.core.todos import TODO_SCHEMA, active_form, write_todos
 from src.main import call_llm
 from src.safety.permissions import check
 from src.safety.sandbox import name as sandbox_name
@@ -59,12 +59,21 @@ If the same command fails twice, stop. Explain the error to the user instead
 of retrying it a third time. Read [exit code N] at the end of bash output: it
 means the command failed, even when nothing else was printed.
 
+Never run a dev server, watcher, or anything else that runs forever (`bun
+dev`, `npm start`, `vite`, `nodemon`, `flask run`, `manage.py runserver`,
+`docker compose up` without `-d`) through bash. This tool runs a command to
+completion and returns its output - it has no way to keep a server alive
+after the call returns, and no way to background one either. Scaffold and
+configure the project, then tell the user the exact command to run themselves
+in their own terminal.
+
 Your current working directory is: {os.getcwd()}
 
 """
 
 
 def main():
+    ui.start()
     ui.banner(sandbox_name())
     messages = session.open_session(session.CURRENT) or []
     if messages:
@@ -95,7 +104,7 @@ def main():
                 session.save(messages)
                 break
 
-            with ui.working():
+            with ui.working(active_form()):
                 message, usage = call_llm(messages + [reminder()], tools=ALL_SCHEMAS)
             messages.append(message.model_dump(exclude_none=True))
             session.save(messages)
@@ -115,15 +124,47 @@ def main():
                 break
 
             for tool_call in message.tool_calls:
-                args = json.loads(tool_call.function.arguments)
-                action, reason = check(tool_call.function.name, args)
+                name = tool_call.function.name
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError as error:
+                    # A weaker model can fail to escape a quote, backslash
+                    # or raw newline inside a long argument (write_file's
+                    # content is the usual culprit), producing JSON that
+                    # breaks partway through. Tell the model, rather than
+                    # letting an unhandled exception crash the whole
+                    # program here - tools.execute() already guards its own
+                    # copy of this same parse, but check() below needs the
+                    # parsed args too, and ran unguarded until now.
+                    result = (
+                        f"Error: arguments were not valid JSON ({error}). This "
+                        "usually means a string value - often write_file's "
+                        "content - has an unescaped quote, backslash, or raw "
+                        "newline. Re-emit the call with those escaped, or "
+                        "split a large write_file into a smaller str_replace."
+                    )
+                    ui.tool(name, {}, result)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": cap(result),
+                        }
+                    )
+                    continue
+                action, reason = check(name, args)
                 if action == "deny":
                     result = f"Blocked by policy: {reason}"
                 elif action == "ask" and not ui.approve(reason):
                     result = "User declined this action."
-                else:
+                elif name == "task":
+                    # the subagent draws its own spinner and nested panels -
+                    # two live Rich displays can't run at the same time
                     _, result = execute(tool_call, tools=ALL_TOOLS)
-                ui.tool(tool_call.function.name, args, result)
+                else:
+                    with ui.working(ui.phase(name, args)):
+                        _, result = execute(tool_call, tools=ALL_TOOLS)
+                ui.tool(name, args, result)
                 messages.append(
                     {
                         "role": "tool",

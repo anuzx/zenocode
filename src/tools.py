@@ -2,15 +2,35 @@
 
 import json
 import os
+import subprocess
 
 from src.core.context import note_read
-from src.safety.sandbox import run
+from src.safety.sandbox import looks_like_dev_server, run
 
 
 # bash function
 def bash(command: str) -> str:
     # run bash commands
-    result = run(command)
+    try:
+        result = run(command)
+    except subprocess.TimeoutExpired:
+        if looks_like_dev_server(command):
+            return (
+                f"'{command}' looks like a dev server or watcher - a process "
+                "that runs forever rather than finishing. This tool can only "
+                "run commands to completion and return their output; it has "
+                "no way to keep a background server alive once this call "
+                "returns. It was stopped after a few seconds - if nothing "
+                "above looks like an error, it started fine. Tell the user "
+                "to run this command themselves in their own terminal to use "
+                "it; do not try running it again here."
+            )
+        return (
+            f"'{command}' did not finish in time and was stopped. If this is "
+            "a long-running process (a server, a watcher, something with no "
+            "natural end), this tool cannot run it - tell the user to run it "
+            "themselves instead of retrying."
+        )
     output = result.stdout + result.stderr
     if result.returncode != 0:
         # Without this an empty failing command looks identical to success,

@@ -45,15 +45,18 @@ class UI:
     def banner(self, sandbox_name="none"):
         self.console.print()
         self.console.print(
-            Rule(Text(" Zeno Code ", style=f"bold {ACCENT}"), style=MUTED)
-        )
-        self.console.print(
             Padding(
-                Text(
-                    f"sandbox: {sandbox_name}  ·  opt-enter for a newline  ·  ctrl-d to exit",
-                    style=MUTED,
+                Panel(
+                    Text(
+                        f"sandbox: {sandbox_name}  ·  opt-enter for a newline  ·  ctrl-d to exit",
+                        style=MUTED,
+                    ),
+                    title=Text("zenocode", style=f"bold {ACCENT}"),
+                    title_align="left",
+                    border_style=MUTED,
+                    padding=(0, 1),
                 ),
-                (0, 0, 0, 2),
+                (0, 2, 0, 2),
             )
         )
 
@@ -120,6 +123,13 @@ class UI:
         except (EOFError, KeyboardInterrupt):
             self.console.print()
             return ""
+
+    def start(self):
+        """A thin accent rule shown once, right when zenocode launches -
+        the "you are here, the app just started" marker. Not shown again
+        per turn, so it doesn't compete with ui.turn()-style noise in a
+        long session."""
+        self.console.print(Rule(style=ACCENT))
 
     # --------------------------------------------------------------- output
 
@@ -214,6 +224,25 @@ class UI:
             Text(label, style=MUTED), spinner="dots", spinner_style=ACCENT
         ):
             yield
+
+    def phase(self, tool_name, args):
+        """A spinner label that says what is actually happening, instead of
+        going silent (or showing a flat 'thinking') while a tool runs."""
+        if tool_name == "bash":
+            command = args.get("command", "")
+            shown = command[:60] + ("…" if len(command) > 60 else "")
+            return f"running: {shown}"
+        if tool_name == "write_file":
+            return f"writing {args.get('path', '')}"
+        if tool_name == "str_replace":
+            return f"editing {args.get('path', '')}"
+        if tool_name == "read_file":
+            return f"reading {args.get('path', '')}"
+        if tool_name == "task":
+            return "delegating to subagent"
+        if tool_name == "write_todos":
+            return "updating plan"
+        return f"running {tool_name}"
 
     # ---------------------------------------------------------------- usage
 

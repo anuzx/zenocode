@@ -120,15 +120,29 @@ def task(description: str) -> str:
             return report or "(the subagent came back with nothing)"
 
         for tool_call in message.tool_calls:
-            args = json.loads(tool_call.function.arguments)
-            action, reason = check(tool_call.function.name, args)
+            name = tool_call.function.name
+            try:
+                args = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError as error:
+                result = f"Error: arguments were not valid JSON ({error})."
+                ui.tool(name, {}, result, nested=True)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result,
+                    }
+                )
+                continue
+            action, reason = check(name, args)
             if action == "deny":
                 result = f"Blocked by policy: {reason}"
             elif action == "ask" and not ui.approve(reason):
                 result = "User declined this action."
             else:
-                args, result = execute(tool_call)
-            ui.tool(tool_call.function.name, args, result, nested=True)
+                with ui.working(ui.phase(name, args)):
+                    args, result = execute(tool_call)
+            ui.tool(name, args, result, nested=True)
             messages.append(
                 {
                     "role": "tool",

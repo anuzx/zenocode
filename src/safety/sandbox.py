@@ -9,6 +9,7 @@ project, but they get the network and write access to the cache folders. They
 are never auto-allowed by permissions.py, so you approve each one first.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,18 @@ NETWORK_COMMANDS = {
     "bun", "bunx", "npm", "npx", "pnpm", "yarn",
     "pip", "pip3", "uv", "uvx", "cargo",
 }
+
+# Dev servers, watchers and other processes that never exit on their own.
+# subprocess.run always waits for the process to finish before returning,
+# so a command like this only ever "completes" via the timeout - and
+# --unshare-pid means even `cmd &` dies the instant the invoking shell
+# exits, so there is no way to background one of these and keep it alive
+# past this one tool call. Best this tool can do is fail fast and say so,
+# rather than hang in silence for the full network timeout.
+DEV_SERVER_PATTERN = re.compile(
+    r"\b(dev|start|serve|watch|runserver)\b|nodemon|docker compose up(?!.*-d)",
+    re.IGNORECASE,
+)
 
 # Caches those tools write to. The first group is created if missing (a fresh
 # machine has no ~/.bun yet); the second is only used if it already exists.
@@ -110,11 +123,24 @@ def name():
     return "none"
 
 
+def looks_like_dev_server(command):
+    """Best-effort guess, not a guarantee - a command we don't recognise as
+    blocking will still hang for the full timeout, just like before."""
+    return bool(DEV_SERVER_PATTERN.search(command))
+
+
 def run(command, timeout=60):
     """Run a command, sandboxed when the OS lets us."""
     network = needs_network(command)
     if network:
         timeout = max(timeout, 300)  # installs are slow
+    if looks_like_dev_server(command):
+        # Overrides the network bump above - a server takes the same ~300s
+        # to NOT finish as an install takes to actually finish, so without
+        # this a dev server masquerades as a slow install for 5 minutes
+        # before failing. 8s is enough to surface a startup error if there
+        # is one.
+        timeout = 8
     sandboxed = wrap(command, network)
     return subprocess.run(
         sandboxed or command,
@@ -122,4 +148,13 @@ def run(command, timeout=60):
         capture_output=True,
         text=True,
         timeout=timeout,
+        # Output is captured, so a hidden prompt (e.g. create-vite asking
+        # "directory not empty, overwrite?") is invisible - you can't see
+        # it or answer it, so it hangs until the timeout instead of failing
+        # fast or just proceeding. Closing stdin makes an unexpected prompt
+        # fail immediately; CI=1 is what create-vite, create-react-app and
+        # most JS scaffolding tools check to skip that prompt and proceed
+        # automatically instead of asking at all.
+        stdin=subprocess.DEVNULL,
+        env={**os.environ, "CI": "1", "npm_config_yes": "true"},
     )

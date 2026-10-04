@@ -45,8 +45,13 @@ BASH_RULES = {
     # harmless writes: the sandbox already confines them to the project
     "mkdir *": "allow",
     "touch *": "allow",
+    # rm can delete real work, so it always stops and asks - never silent,
+    # never outright blocked. The sandbox is the actual backstop: it only
+    # grants write access inside the project (and keeps .git read-only even
+    # there), so even an approved "rm -rf ." cannot reach anything outside
+    # the project or touch your commit history.
+    "rm *": "ask",
     # risky: never, even if the user says yes
-    "rm *": "deny",
     "sudo *": "deny",
     "chmod *": "deny",
     "chown *": "deny",

@@ -34,9 +34,7 @@ def _word_left(event):
 @bindings.add("escape", "right")
 def _word_right(event):
     document = event.current_buffer.document
-    event.current_buffer.cursor_position += (
-        document.find_next_word_ending(count=1) or 0
-    )
+    event.current_buffer.cursor_position += document.find_next_word_ending(count=1) or 0
 
 
 @bindings.add("escape", "enter")
